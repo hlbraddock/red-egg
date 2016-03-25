@@ -11,7 +11,9 @@ import javax.annotation.PreDestroy;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -95,37 +97,25 @@ public class InMemoryErrorQueue implements ErrorQueue
     {
         try
         {
-            submit(report);
+            submit(report).get();
         }
-        catch (RejectedExecutionException e)
+        catch (RejectedExecutionException | InterruptedException | ExecutionException e)
         {
-            System.out.println("submission rejected");
-            errorLog.error("unable to submit error report to queue; using fallback reporter", e);
+            errorLog.error("unable to submit error report to queue; using fallback reporter", e.getCause());
 
             // run on this thread
             fallback(report);
         }
     }
 
-    private void submit(final ErrorReport report)
+    private Future<?> submit(final ErrorReport report)
     {
-        executorService.submit(new Runnable()
+        return executorService.submit(new Runnable()
         {
             @Override
             public void run()
             {
-                try
-                {
-                    primaryErrorReporter.send(report);
-                }
-                catch (Throwable t)
-                {
-                    errorLog.error("unable to send error report; using fallback reporter", t);
-                    fallback(report);
-
-                    //propagate to kill this thread if necessary
-                    throw Throwables.propagate(t);
-                }
+                primaryErrorReporter.send(report);
             }
         });
     }
